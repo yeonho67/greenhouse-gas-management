@@ -6031,14 +6031,15 @@ def style_dashboard_table(df):
     format_dict = {}
 
     for col in numeric_columns:
-        if "증감률" in col or "비중" in col:
+        if "증감률" in col or "비중" in col or "배출률" in col:
+            # 퍼센트(%) 관련은 소수점 첫째 자리까지 표시 (.1f)
             format_dict[col] = lambda value: "" if value == "" else f"{float(value):,.1f}" if isinstance(value, (int, float)) else value
-        elif "매출액" in col:
-            format_dict[col] = lambda value: "-" if value == "" or pd.isna(value) or float(value) == 0 else f"{float(value):,.3f}"
-        elif "탄소집약도" in col:
+        elif "매출액" in col or "탄소집약도" in col:
+            # 매출액과 집약도는 기존처럼 유지 (.3f)
             format_dict[col] = lambda value: "-" if value == "" or pd.isna(value) else f"{float(value):,.3f}"
         else:
-            format_dict[col] = lambda value: "-" if value == "" or pd.isna(value) or float(value) == 0 else f"{float(value):,.3f}"
+            # ★ 온실가스 배출량, 차이, 증감량 등은 반올림 후 정수로 표시 (.0f)
+            format_dict[col] = lambda value: "-" if value == "" or pd.isna(value) or float(value) == 0 else f"{float(value):,.0f}"
 
     def highlight_change(value):
         try:
@@ -6123,13 +6124,13 @@ def make_dashboard(df, selected_year, selected_month):
         f"/ 전년 동월: {selected_year - 1}년 {selected_month}월"
     )
 
-    # 1. 요약 수치 (Metrics)
+    # 1. 요약 수치 (Metrics) - ★ 소수점 제거 (,.0f 적용)
     metric_col1, metric_col2, metric_col3 = st.columns(3)
 
     metric_col1.metric(
         "당월 배출량",
-        f"{total_emission:,.3f} tCO₂e",
-        delta=f"{yoy_change_amount:,.3f} tCO₂e"
+        f"{total_emission:,.0f} tCO₂e",
+        delta=f"{yoy_change_amount:,.0f} tCO₂e"
     )
 
     if yoy_change_rate == "":
@@ -6144,8 +6145,8 @@ def make_dashboard(df, selected_year, selected_month):
 
     metric_col3.metric(
         "연간 누적 배출량",
-        f"{ytd_total:,.3f} tCO₂e",
-        delta=f"{ytd_total - previous_ytd_total:,.3f} tCO₂e"
+        f"{ytd_total:,.0f} tCO₂e",
+        delta=f"{ytd_total - previous_ytd_total:,.0f} tCO₂e"
     )
 
     metric_col4, metric_col5, metric_col6 = st.columns(3)
@@ -6168,15 +6169,13 @@ def make_dashboard(df, selected_year, selected_month):
 
     metric_col6.metric(
         "비매출(과천 빌딩) 배출량",
-        f"{non_revenue_emission:,.3f} tCO₂e"
+        f"{non_revenue_emission:,.0f} tCO₂e"
     )
 
     st.divider()
 
-    # --- 여기서부터 차트(그래프) 시각화 추가 부분 시작 ---
     st.subheader("📊 온실가스 배출량 시각화")
 
-    # 테이블 데이터를 차트를 그리기 위해 미리 생성
     corporation_table = build_corporation_dashboard_table(
         current_df=current_df,
         previous_df=previous_df,
@@ -6189,7 +6188,6 @@ def make_dashboard(df, selected_year, selected_month):
         previous_df=previous_df,
     )
 
-    # 1) 연간 월별 배출량 추이 차트 (전체 너비 막대 그래프)
     trend_df = df[df["year"] == selected_year].groupby("month", as_index=False)["emission_amount"].sum()
     if not trend_df.empty:
         trend_df["month_str"] = trend_df["month"].astype(str) + "월"
@@ -6199,18 +6197,16 @@ def make_dashboard(df, selected_year, selected_month):
             y="emission_amount",
             title=f"{selected_year}년 월별 온실가스 배출량 추이",
             labels={"month_str": "월", "emission_amount": "배출량(tCO₂e)"},
-            text_auto='.0f', # 막대 위에 숫자 표시
-            color_discrete_sequence=["#2ca02c"] # 초록색 톤
+            text_auto='.0f', 
+            color_discrete_sequence=["#2ca02c"]
         )
         fig_trend.update_layout(xaxis_title="", yaxis_title="배출량(tCO₂e)", template="plotly_white")
         st.plotly_chart(fig_trend, use_container_width=True)
 
-    # 2) 도넛 차트 & 그룹 막대 차트를 2개 컬럼으로 나란히 배치
     chart_col1, chart_col2 = st.columns(2)
 
     with chart_col1:
         if not energy_table.empty:
-            # 0 값 필터링 (파이 차트가 예쁘게 그려지도록)
             valid_energy = energy_table[energy_table["당월 배출량(tCO₂e)"] > 0]
             if not valid_energy.empty:
                 fig_donut = px.pie(
@@ -6225,7 +6221,6 @@ def make_dashboard(df, selected_year, selected_month):
 
     with chart_col2:
         if not corporation_table.empty:
-            # 당월/전년동월 비교를 위해 데이터 형태 변환(melt)
             melted_corp = corporation_table.melt(
                 id_vars=["법인"],
                 value_vars=["당월 배출량(tCO₂e)", "전년 동월 배출량(tCO₂e)"],
@@ -6239,14 +6234,12 @@ def make_dashboard(df, selected_year, selected_month):
                 color="구분",
                 barmode="group",
                 title=f"{selected_month}월 법인별 배출량 비교",
-                color_discrete_sequence=["#1f77b4", "#aec7e8"] # 진한 파랑, 연한 파랑
+                color_discrete_sequence=["#1f77b4", "#aec7e8"]
             )
             fig_bar.update_layout(xaxis_title="", yaxis_title="배출량(tCO₂e)", template="plotly_white", legend_title_text="")
             st.plotly_chart(fig_bar, use_container_width=True)
 
     st.divider()
-    # --- 차트 시각화 추가 부분 끝 ---
-
 
     target_ytd_table = build_target_ytd_dashboard_table(
         selected_year=selected_year,
@@ -6280,19 +6273,19 @@ def make_dashboard(df, selected_year, selected_month):
     with target_col1:
         st.metric(
             "누적 목표배출량",
-            f"{total_ytd_target:,.3f} tCO₂e"
+            f"{total_ytd_target:,.0f} tCO₂e"  # ★ 소수점 제거
         )
 
     with target_col2:
         st.metric(
             "누적 실제배출량",
-            f"{total_ytd_actual:,.3f} tCO₂e"
+            f"{total_ytd_actual:,.0f} tCO₂e"  # ★ 소수점 제거
         )
 
     with target_col3:
         st.metric(
             "누적 목표 대비 차이",
-            f"{total_ytd_gap:,.3f} tCO₂e"
+            f"{total_ytd_gap:,.0f} tCO₂e"  # ★ 소수점 제거
         )
 
     with target_col4:
@@ -6388,8 +6381,6 @@ def make_dashboard(df, selected_year, selected_month):
                 use_container_width=True,
                 hide_index=True,
             )
-
-
 
 def render_dashboard_page():
     st.sidebar.subheader("조회 조건")
